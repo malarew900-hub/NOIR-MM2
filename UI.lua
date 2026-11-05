@@ -33,13 +33,19 @@ function UI.Init(cfg, esp, combat, farm, movement)
     Tabs.Visuals:AddToggle("BoxESP", { Title = "Box", Default = cfg.ESP.Box, Callback = function(v) cfg.ESP.Box = v end })
     Tabs.Visuals:AddToggle("NameESP", { Title = "Name", Default = cfg.ESP.Name, Callback = function(v) cfg.ESP.Name = v end })
     Tabs.Visuals:AddToggle("DistESP", { Title = "Distance", Default = cfg.ESP.Distance, Callback = function(v) cfg.ESP.Distance = v end })
-
+    Tabs.Visuals:AddToggle("ChamsEnable", { Title = "Chams (Highlight)", Default = cfg.ESP.Chams, Callback = function(v) cfg.ESP.Chams = v end })
+    Tabs.Visuals:AddToggle("RoleESP", { Title = "Show Role", Default = cfg.ESP.RoleESP, Callback = function(v) cfg.ESP.RoleESP = v end })
+    
+    Tabs.Visuals:AddSection("Colors")
+    Tabs.Visuals:AddColorpicker("MurdererCol", { Title = "Murderer Color", Default = cfg.ESP.Colors.Murderer, Callback = function(v) cfg.ESP.Colors.Murderer = v end })
+    Tabs.Visuals:AddColorpicker("SheriffCol", { Title = "Sheriff Color", Default = cfg.ESP.Colors.Sheriff, Callback = function(v) cfg.ESP.Colors.Sheriff = v end })
+    Tabs.Visuals:AddColorpicker("InnocentCol", { Title = "Innocent Color", Default = cfg.ESP.Colors.Innocent, Callback = function(v) cfg.ESP.Colors.Innocent = v end })
     -- Player
     Tabs.Player:AddToggle("FlyEnable", { Title = "Fly", Default = cfg.Movement.Fly, Callback = function(v) cfg.Movement.Fly = v end })
     Tabs.Player:AddToggle("NoclipEnable", { Title = "Noclip", Default = cfg.Movement.Noclip, Callback = function(v) cfg.Movement.Noclip = v end })
     Tabs.Player:AddToggle("SpeedEnable", { Title = "Speed", Default = cfg.Movement.Speed, Callback = function(v) cfg.Movement.Speed = v end })
     Tabs.Player:AddSlider("WalkSpeed", { Title = "Walk Speed", Default = cfg.Movement.WalkSpeed, Min = 16, Max = 100, Rounding = 0, Callback = function(v) cfg.Movement.WalkSpeed = v end })
-
+    
     SaveManager:SetLibrary(Fluent)
     InterfaceManager:SetLibrary(Fluent)
     SaveManager:IgnoreThemeSettings()
