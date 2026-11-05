@@ -13,7 +13,8 @@ local Config = {
             ChamsOutline = Color3.fromRGB(0, 0, 0) -- Цвет обводки
         }
     },
-    Combat = { Aimbot = false, SilentAim = false, FOV = 130, Smoothness = 0.14, AimPart = "Head", TargetRole = "Murderer", KnifeAura = false },
+    Combat = { Aimbot = false, SilentAim = false, FOV = 130, Smoothness = 0.14, AimPart = "Head", TargetRole = "Murderer", KnifeAura = false, -- В таблицу Combat добавь:
+AuraDist = 20, -- Дистанция ауры (можно менять в UI) },
     Farm = { Enabled = false, AutoGrabGun = true },
     Movement = { Fly = false, FlySpeed = 70, Noclip = false, Speed = false, WalkSpeed = 26 }
 }
