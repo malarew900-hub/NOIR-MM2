@@ -6,8 +6,6 @@ local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
-local RunService = game:GetService("RunService")
-
 local lastTp = 0
 
 function Combat.Init(cfg)
@@ -22,6 +20,7 @@ function Combat.Init(cfg)
 end
 
 local function getClosest()
+    if not Config or not Config.Combat then return nil end
     local best, bestDist = nil, Config.Combat.FOV
     local mousePos = Vector2.new(Mouse.X, Mouse.Y)
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -43,10 +42,9 @@ local function getClosest()
     return best
 end
 
--- Функция Телепорт-Ауры
 local function tpKill()
-    if not Config.Combat.KnifeAura then return end
-    if tick() - lastTp < 0.1 then return end -- Задержка, чтобы не спамить
+    if not Config or not Config.Combat or not Config.Combat.KnifeAura then return end
+    if tick() - lastTp < 0.15 then return end
     
     local myChar = LocalPlayer.Character
     local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -56,27 +54,23 @@ local function tpKill()
     local isKnife = tool and string.lower(tool.Name):find("knife")
     
     if isKnife then
+        local auraDist = Config.Combat.AuraDist or 20
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
                 local hrp = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-                -- Проверяем дистанцию (по умолчанию 20, если в конфиге нет)
-                local auraDist = Config.Combat.AuraDist or 20
-                
                 if hrp and (hrp.Position - myHRP.Position).Magnitude < auraDist then
                     local oldCFrame = myHRP.CFrame
                     
-                    -- Телепорт к цели
-                    myHRP.CFrame = hrp.CFrame * CFrame.new(0, 0, 1.5) -- встаем вплотную
-                    task.wait(0.01) -- микро-задержка для синхронизации
+                    -- Телепорт
+                    myHRP.CFrame = hrp.CFrame * CFrame.new(0, 0, 1.5)
+                    task.wait(0.02) 
                     
-                    -- Бьем
-                    if tool then
-                        tool:Activate()
-                    end
-                    if mouse1click then mouse1click() end
+                    -- Удар
+                    if tool then pcall(function() tool:Activate() end) end
+                    if mouse1click then pcall(mouse1click) end
                     
-                    -- Возвращаемся назад (опционально, чтобы не палиться)
-                    task.wait(0.01)
+                    -- Возврат
+                    task.wait(0.02)
                     myHRP.CFrame = oldCFrame
                     
                     lastTp = tick()
@@ -88,7 +82,7 @@ local function tpKill()
 end
 
 function Combat.Update()
-    if not Config.Combat.Aimbot and not Config.Combat.KnifeAura then return end
+    if not Config or not Config.Combat then return end
     tpKill()
 
     if Config.Combat.Aimbot then
@@ -99,9 +93,9 @@ function Combat.Update()
             local delta = (Vector2.new(screen.X, screen.Y) - mousePos) * (1 - Config.Combat.Smoothness)
             
             if mousemoverel then
-                mousemoverel(delta.X, delta.Y)
+                pcall(mousemoverel, delta.X, delta.Y)
             elseif Input and Input.MouseMove then
-                Input.MouseMove(delta.X, delta.Y)
+                pcall(Input.MouseMove, delta.X, delta.Y)
             end
         end
     end
