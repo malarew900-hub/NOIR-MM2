@@ -23,29 +23,31 @@ function UI.Init(cfg, esp, combat, farm, movement)
     }
 
     -- Combat
-    Tabs.Combat:AddToggle("AimEnable", { Title = "Aimbot", Default = cfg.Combat.Aimbot, Callback = function(v) cfg.Combat.Aimbot = v end })
+    Tabs.Combat:AddToggle("AimEnable", { Title = "Aimbot (Hold RMB)", Default = cfg.Combat.Aimbot, Callback = function(v) cfg.Combat.Aimbot = v end })
     Tabs.Combat:AddToggle("SilentEnable", { Title = "Silent Aim", Default = cfg.Combat.SilentAim, Callback = function(v) cfg.Combat.SilentAim = v end })
     Tabs.Combat:AddSlider("FOV", { Title = "FOV", Default = cfg.Combat.FOV, Min = 40, Max = 400, Rounding = 0, Callback = function(v) cfg.Combat.FOV = v end })
-    Tabs.Combat:AddToggle("AuraEnable", { Title = "Knife Aura", Default = false, Callback = function(v) cfg.Combat.KnifeAura = v end })
+    Tabs.Combat:AddSlider("Smooth", { Title = "Smoothness", Default = cfg.Combat.Smoothness, Min = 0.01, Max = 0.5, Rounding = 2, Callback = function(v) cfg.Combat.Smoothness = v end })
+    Tabs.Combat:AddToggle("AuraEnable", { Title = "Knife Aura (Auto Stab)", Default = cfg.Combat.KnifeAura, Callback = function(v) cfg.Combat.KnifeAura = v end })
     
     -- Visuals
     Tabs.Visuals:AddToggle("ESPEnable", { Title = "Enable ESP", Default = cfg.ESP.Enabled, Callback = function(v) cfg.ESP.Enabled = v end })
     Tabs.Visuals:AddToggle("BoxESP", { Title = "Box", Default = cfg.ESP.Box, Callback = function(v) cfg.ESP.Box = v end })
     Tabs.Visuals:AddToggle("NameESP", { Title = "Name", Default = cfg.ESP.Name, Callback = function(v) cfg.ESP.Name = v end })
     Tabs.Visuals:AddToggle("DistESP", { Title = "Distance", Default = cfg.ESP.Distance, Callback = function(v) cfg.ESP.Distance = v end })
+    Tabs.Visuals:AddToggle("RoleESP", { Title = "Show Role Tag", Default = cfg.ESP.RoleESP, Callback = function(v) cfg.ESP.RoleESP = v end })
     Tabs.Visuals:AddToggle("ChamsEnable", { Title = "Chams (Highlight)", Default = cfg.ESP.Chams, Callback = function(v) cfg.ESP.Chams = v end })
-    Tabs.Visuals:AddToggle("RoleESP", { Title = "Show Role", Default = cfg.ESP.RoleESP, Callback = function(v) cfg.ESP.RoleESP = v end })
     
     Tabs.Visuals:AddSection("Colors")
     Tabs.Visuals:AddColorpicker("MurdererCol", { Title = "Murderer Color", Default = cfg.ESP.Colors.Murderer, Callback = function(v) cfg.ESP.Colors.Murderer = v end })
     Tabs.Visuals:AddColorpicker("SheriffCol", { Title = "Sheriff Color", Default = cfg.ESP.Colors.Sheriff, Callback = function(v) cfg.ESP.Colors.Sheriff = v end })
     Tabs.Visuals:AddColorpicker("InnocentCol", { Title = "Innocent Color", Default = cfg.ESP.Colors.Innocent, Callback = function(v) cfg.ESP.Colors.Innocent = v end })
+
     -- Player
     Tabs.Player:AddToggle("FlyEnable", { Title = "Fly", Default = cfg.Movement.Fly, Callback = function(v) cfg.Movement.Fly = v end })
     Tabs.Player:AddToggle("NoclipEnable", { Title = "Noclip", Default = cfg.Movement.Noclip, Callback = function(v) cfg.Movement.Noclip = v end })
     Tabs.Player:AddToggle("SpeedEnable", { Title = "Speed", Default = cfg.Movement.Speed, Callback = function(v) cfg.Movement.Speed = v end })
     Tabs.Player:AddSlider("WalkSpeed", { Title = "Walk Speed", Default = cfg.Movement.WalkSpeed, Min = 16, Max = 100, Rounding = 0, Callback = function(v) cfg.Movement.WalkSpeed = v end })
-    
+
     SaveManager:SetLibrary(Fluent)
     InterfaceManager:SetLibrary(Fluent)
     SaveManager:IgnoreThemeSettings()
@@ -54,6 +56,6 @@ function UI.Init(cfg, esp, combat, farm, movement)
     InterfaceManager:BuildInterfaceSection(Tabs.Misc)
     SaveManager:BuildConfigSection(Tabs.Misc)
     Window:SelectTab(1)
-    Fluent:Notify({ Title = "NOIR MM2", Content = "Loaded successfully", Duration = 3 })
+    Fluent:Notify({ Title = "NOIR MM2", Content = "Loaded with Chams + Combat", Duration = 3 })
 end
 return UI
