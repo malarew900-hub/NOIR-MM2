@@ -1,5 +1,5 @@
 -- ============================================================================
--- NOIR / MM2 KEY SYSTEM (FINAL LOADER)
+-- NOIR / MM2 KEY SYSTEM (FINAL LOADER + WAIT FOR GAME)
 -- ============================================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -12,10 +12,18 @@ local PART2_URL = "https://raw.githubusercontent.com/malarew900-hub/NOIR-MM2/ref
 local FILE_NAME = "Noir_UsedKeys.json"
 local SESSION_TIME = 86400 -- 24 часа
 
--- Функция загрузки Part 2 (которая потом загрузит Part 1)
+-- 1. ФУНКЦИЯ ЗАГРУЗКИ (С ожиданием игры)
 local function LoadMainScripts()
     getgenv().NoirAuthenticated = true
     
+    -- Ждем, пока игра полностью загрузится, чтобы не крашить CoreGui
+    if not game:IsLoaded() then 
+        print("[NOIR] Ожидание загрузки игры...")
+        game.Loaded:Wait() 
+        task.wait(1) -- Небольшая пауза для инициализации
+    end
+    
+    print("[NOIR] Загрузка модулей...")
     local success, err = pcall(function()
         loadstring(game:HttpGet(PART2_URL .. "?t=" .. tostring(os.time())))()
     end)
@@ -25,7 +33,7 @@ local function LoadMainScripts()
     end
 end
 
--- АВТО-ВХОД
+-- 2. АВТО-ВХОД
 if getgenv().NoirAuthenticated then
     LoadMainScripts()
     return
@@ -51,14 +59,14 @@ local currentTime = os.time()
 for key, timeUsed in pairs(usedKeys) do
     local timePassed = currentTime - timeUsed
     if timePassed < SESSION_TIME then
-        print("[NOIR] Auto-login successful.")
+        print("[NOIR] Auto-login successful. Key active for another " .. math.floor((SESSION_TIME - timePassed) / 3600) .. " hours.")
         LoadMainScripts()
         return
     end
 end
 
 -- ============================================================================
--- UI KEY SYSTEM
+-- UI KEY SYSTEM (Отрисовка)
 -- ============================================================================
 local KeyGui = Instance.new("ScreenGui")
 KeyGui.Name = "NoirKeySystem"
@@ -182,7 +190,7 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- ============================================================================
--- ПРОВЕРКА КЛЮЧА
+-- ЛОГИКА ВВОДА КЛЮЧА
 -- ============================================================================
 local function ShowStatus(msg, isSuccess)
     StatusText.Text = msg
