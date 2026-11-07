@@ -4503,3 +4503,5 @@ pcall(function()
         
     end
 end)
+-- В самом конце Part 1 добавь это:
+getgenv().NoirWindow = Window
