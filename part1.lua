@@ -3268,7 +3268,7 @@ pcall(function()
     end
 end)
 -- ============================================================================
--- PART 14: KAMIKAZE DRONE SYSTEM (Fixed Action Trigger)
+-- PART 14: KAMIKAZE DRONE SYSTEM (Independent & Fixed)
 -- ============================================================================
 
 local Players = game:GetService("Players")
@@ -3279,6 +3279,60 @@ local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
+-- ============================================================================
+-- ГЛОБАЛЬНЫЕ ФУНКЦИИ (Добавлены сюда, чтобы Дрон не крашился, если их нет)
+-- ============================================================================
+_G.NoirKnifeKill = function(targetChar)
+    local char = LocalPlayer.Character
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local knife = (char and char:FindFirstChild("Knife")) or (bp and bp:FindFirstChild("Knife"))
+    if knife then
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum and knife.Parent ~= char then pcall(function() hum:EquipTool(knife) end) end
+        local ev = knife:FindFirstChild("Events")
+        if ev then
+            local ht = ev:FindFirstChild("HandleTouched")
+            if ht then
+                for _, partName in ipairs({"HumanoidRootPart", "UpperTorso", "Torso", "Head"}) do
+                    local part = targetChar and targetChar:FindFirstChild(partName)
+                    if part then 
+                        pcall(function() ht:FireServer(part) end)
+                        break 
+                    end
+                end
+            end
+        end
+    end
+end
+
+_G.NoirSkidFling = function(targetPlayer)
+    if not targetPlayer or not targetPlayer.Character then return end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local tHrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not tHrp then return end
+    
+    -- Безопасный флинг без жестких CFrame скачков
+    local bv = Instance.new("BodyAngularVelocity", hrp)
+    bv.AngularVelocity = Vector3.new(9999, 9999, 9999)
+    bv.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    local oldCF = hrp.CFrame
+    
+    task.spawn(function()
+        for i = 1, 10 do
+            if hrp and tHrp then hrp.CFrame = tHrp.CFrame * CFrame.new(0, 0, -2) end
+            task.wait(0.05)
+        end
+        task.wait(0.5)
+        if bv then bv:Destroy() end
+        if hrp and oldCF then hrp.CFrame = oldCF end
+    end)
+end
+
+-- ============================================================================
+-- ЛОГИКА ДРОНА
+-- ============================================================================
 getgenv().NoirConfig = getgenv().NoirConfig or {}
 getgenv().NoirConfig.Drone = getgenv().NoirConfig.Drone or {
     Mode = "Fling",
@@ -3294,17 +3348,12 @@ local DroneModel = nil
 local SavedCFrame = nil
 local SavedTransparency = {}
 local CurrentTrail = nil
-
 local currentPitch = 0
 local currentRoll = 0
 
--- ============================================================================
--- 1. СОЗДАНИЕ МОДЕЛИ (Все части Anchored)
--- ============================================================================
 local function createDroneModel()
     local model = Instance.new("Model")
     model.Name = "NoirDrone"
-    
     local core = Instance.new("Part")
     core.Name = "Core"
     core.Size = Vector3.new(1, 1, 1)
@@ -3316,18 +3365,13 @@ local function createDroneModel()
     
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        core.CFrame = hrp.CFrame * CFrame.new(0, 0, -5)
-    end
+    if hrp then core.CFrame = hrp.CFrame * CFrame.new(0, 0, -5) end
 
     local id = tostring(getgenv().NoirConfig.Drone.AssetID):gsub("%D", "")
     local success = false
     
     if id ~= "" then
-        local ok, objects = pcall(function()
-            return game:GetObjects("rbxassetid://" .. id)
-        end)
-        
+        local ok, objects = pcall(function() return game:GetObjects("rbxassetid://" .. id) end)
         if ok and objects and #objects > 0 then
             local customModel = objects[1]
             if customModel:IsA("BasePart") then
@@ -3335,19 +3379,14 @@ local function createDroneModel()
                 customModel.Parent = m
                 customModel = m
             end
-            
             customModel.Parent = model
-            
-            -- Ставим модель ровно на ядро
             customModel:PivotTo(core.CFrame)
-            
             for _, p in ipairs(customModel:GetDescendants()) do
                 if p:IsA("BasePart") then
                     p.Anchored = true
                     p.CanCollide = getgenv().NoirConfig.Drone.CollisionEnabled
                 end
             end
-            
             success = true
         end
     end
@@ -3381,9 +3420,6 @@ local function createDroneModel()
     return model
 end
 
--- ============================================================================
--- 2. SIGNAL LOST
--- ============================================================================
 local blackoutGui = Instance.new("ScreenGui")
 blackoutGui.Name = "NoirDroneBlackout"
 blackoutGui.ResetOnSpawn = false
@@ -3443,9 +3479,6 @@ local function playSignalLostEffect()
     blackoutGui.Enabled = false
 end
 
--- ============================================================================
--- 3. ЛОГИКА
--- ============================================================================
 local function createExplosion(pos)
     local explodePart = Instance.new("Part")
     explodePart.Size = Vector3.new(1, 1, 1)
@@ -3468,11 +3501,9 @@ local function createExplosion(pos)
     emit.Size = NumberSequence.new(5, 0)
     emit.Color = ColorSequence.new(Color3.fromRGB(255, 255, 0), Color3.fromRGB(255, 50, 0))
     emit:Emit(100)
-
     game:GetService("Debris"):AddItem(explodePart, 1)
 end
 
--- 🟢 НОВАЯ ФУНКЦИЯ ЗАВЕРШЕНИЯ (Сначала возвращаем игрока, потом флингаем)
 local function EndDroneFling(targetPlayer)
     if not DroneActive then return end
     DroneActive = false
@@ -3481,7 +3512,6 @@ local function EndDroneFling(targetPlayer)
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
 
-    -- Возвращаем игрока и видимость
     if char and hrp then
         if hum then 
             hum.PlatformStand = false 
@@ -3496,29 +3526,28 @@ local function EndDroneFling(targetPlayer)
         Camera.CameraSubject = hum
     end
 
-    -- Взрываем дрон
     if DroneModel then
         if DroneModel.PrimaryPart then createExplosion(DroneModel.PrimaryPart.Position) end
         DroneModel:Destroy() 
     end
 
-    -- Проверяем на маньяка
     local isMurderer = false
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if (backpack and backpack:FindFirstChild("Knife")) or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Knife")) then
         isMurderer = true
     end
 
-    -- Запускаем убийство или флинг
-    if getgenv().NoirConfig.Drone.Mode == "Murder" and isMurderer and _G.NoirKnifeKill then
-        task.spawn(function() _G.NoirKnifeKill(targetPlayer.Character) end)
+    -- Вызываем наши локальные функции безопасно
+    if getgenv().NoirConfig.Drone.Mode == "Murder" and isMurderer then
+        task.spawn(function() 
+            if _G.NoirKnifeKill then _G.NoirKnifeKill(targetPlayer.Character) end 
+        end)
     else
-        if _G.NoirSkidFling then
-            task.spawn(function() _G.NoirSkidFling(targetPlayer) end)
-        end
+        task.spawn(function() 
+            if _G.NoirSkidFling then _G.NoirSkidFling(targetPlayer) end 
+        end)
     end
 
-    -- Включаем черный экран (он перекроет телепорт и флинг)
     playSignalLostEffect() 
 end
 
@@ -3550,7 +3579,6 @@ local function StopDrone(exploded)
         hrp.Anchored = false
         hrp.CFrame = SavedCFrame
     end
-    
     Camera.CameraSubject = hum
     CurrentTrail = nil
 end
@@ -3580,22 +3608,16 @@ local function StartDrone()
     currentPitch = 0
     currentRoll = 0
     
-    if DroneModel.PrimaryPart then 
-        Camera.CameraSubject = DroneModel.PrimaryPart 
-    end
+    if DroneModel.PrimaryPart then Camera.CameraSubject = DroneModel.PrimaryPart end
     
-    Fluent:Notify({ Title = "Drone Launched", Content = "WASD - Управление. Врежься в игрока!", Duration = 3 })
+    if Fluent then Fluent:Notify({ Title = "Drone Launched", Content = "WASD - Управление. Врежься в игрока!", Duration = 3 }) end
 end
 
--- ============================================================================
--- 4. УПРАВЛЕНИЕ И КОЛЛИЗИЯ
--- ============================================================================
 RunService.RenderStepped:Connect(function(dt)
     if not DroneActive or not DroneModel or not DroneModel.PrimaryPart then return end
     
     local core = DroneModel.PrimaryPart
     local camCFrame = Camera.CFrame
-    
     local flatLook = Vector3.new(camCFrame.LookVector.X, 0, camCFrame.LookVector.Z).Unit
     local flatRight = Vector3.new(camCFrame.RightVector.X, 0, camCFrame.RightVector.Z).Unit
 
@@ -3603,7 +3625,6 @@ RunService.RenderStepped:Connect(function(dt)
     if flatRight.Magnitude < 0.1 then flatRight = Vector3.new(1, 0, 0) end
 
     local fwdInput, rightInput, upInput = 0, 0, 0
-
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then fwdInput = 1 end
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then fwdInput = -1 end
     if UserInputService:IsKeyDown(Enum.KeyCode.D) then rightInput = 1 end
@@ -3623,14 +3644,12 @@ RunService.RenderStepped:Connect(function(dt)
 
     local targetPitch = fwdInput * math.rad(25)
     local targetRoll = rightInput * math.rad(25)
-    
     local alpha = math.clamp(dt * 8, 0, 1)
     currentPitch = currentPitch + (targetPitch - currentPitch) * alpha
     currentRoll = currentRoll + (targetRoll - currentRoll) * alpha
 
     local baseCFrame = CFrame.lookAt(Vector3.zero, flatLook)
     local tiltCFrame = CFrame.Angles(currentPitch, 0, -currentRoll)
-
     local moveDir = (flatLook * fwdInput + flatRight * rightInput + Vector3.new(0, 1, 0) * upInput)
     local newPos = core.Position
     
@@ -3644,9 +3663,7 @@ RunService.RenderStepped:Connect(function(dt)
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
             rayParams.FilterDescendantsInstances = {DroneModel, LocalPlayer.Character}
             local result = workspace:Raycast(core.Position, moveDir * speed * dt, rayParams)
-            if result then
-                targetPos = core.Position
-            end
+            if result then targetPos = core.Position end
         end
         newPos = targetPos
     end
@@ -3655,7 +3672,6 @@ RunService.RenderStepped:Connect(function(dt)
     DroneModel:PivotTo(finalCFrame)
     core.CFrame = finalCFrame
 
-    -- Проверка на удар
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
             local tHrp = p.Character:FindFirstChild("HumanoidRootPart")
@@ -3663,7 +3679,7 @@ RunService.RenderStepped:Connect(function(dt)
             if tHrp and tHum and tHum.Health > 0 then
                 local dist = (core.Position - tHrp.Position).Magnitude
                 if dist < 6 then
-                    EndDroneFling(p) -- ВЫЗЫВАЕМ НОВУЮ ФУНКЦИЮ
+                    EndDroneFling(p)
                     break
                 end
             end
@@ -3671,25 +3687,19 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- ============================================================================
--- 5. МЕНЮ
--- ============================================================================
+-- Меню
 task.wait(1)
-
 pcall(function()
     local FunTab = _G.NoirFunTab
     if FunTab then
         local DroneSec = FunTab:AddSection("Kamikaze Drone")
-
+        
         DroneSec:AddInput("DroneAssetIdInput", {
             Title = "Drone Model ID",
             Default = "",
             Placeholder = "Введите ID модели дрона...",
             Finished = true,
-            Callback = function(text)
-                getgenv().NoirConfig.Drone.AssetID = text
-                Fluent:Notify({ Title = "Drone", Content = "Модель обновлена", Duration = 2 })
-            end
+            Callback = function(text) getgenv().NoirConfig.Drone.AssetID = text end
         })
 
         DroneSec:AddToggle("DroneCollisionToggle", {
@@ -3707,65 +3717,20 @@ pcall(function()
 
         DroneSec:AddSlider("DroneSpeedSlider", {
             Title = "Drone Speed",
-            Default = 80,
-            Min = 20,
-            Max = 200,
-            Rounding = 0,
+            Default = 80, Min = 20, Max = 200, Rounding = 0,
             Callback = function(v) getgenv().NoirConfig.Drone.Speed = v end
-        })
-
-        DroneSec:AddToggle("DroneTrailToggle", {
-            Title = "Enable Trail",
-            Default = true,
-            Callback = function(v)
-                getgenv().NoirConfig.Drone.TrailEnabled = v
-                if DroneActive and DroneModel and DroneModel.PrimaryPart then
-                    if v then
-                        local a0 = Instance.new("Attachment", DroneModel.PrimaryPart) a0.Position = Vector3.new(0, 0, 1)
-                        local a1 = Instance.new("Attachment", DroneModel.PrimaryPart) a1.Position = Vector3.new(0, 0, -1)
-                        local trail = Instance.new("Trail")
-                        trail.Attachment0 = a0
-                        trail.Attachment1 = a1
-                        trail.Lifetime = 0.5
-                        trail.Color = ColorSequence.new(getgenv().NoirConfig.Drone.TrailColor)
-                        trail.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)})
-                        trail.Parent = DroneModel.PrimaryPart
-                        CurrentTrail = trail
-                    else
-                        if CurrentTrail then
-                            CurrentTrail:Destroy()
-                            CurrentTrail = nil
-                        end
-                    end
-                end
-            end
-        })
-
-        DroneSec:AddColorpicker("DroneTrailColor", {
-            Title = "Trail Color",
-            Default = getgenv().NoirConfig.Drone.TrailColor,
-            Callback = function(v)
-                getgenv().NoirConfig.Drone.TrailColor = v
-                if CurrentTrail then
-                    CurrentTrail.Color = ColorSequence.new(v)
-                end
-            end
         })
 
         DroneSec:AddButton({
             Title = "SPAWN DRONE",
             Description = "Стать дроном и взорвать цель",
-            Callback = function()
-                StartDrone()
-            end
+            Callback = function() StartDrone() end
         })
         
         DroneSec:AddButton({
             Title = "Recall Drone (Cancel)",
             Description = "Отменить полет и вернуться",
-            Callback = function()
-                if DroneActive then StopDrone(false) end
-            end
+            Callback = function() if DroneActive then StopDrone(false) end end
         })
     end
 end)
