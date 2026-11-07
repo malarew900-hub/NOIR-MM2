@@ -2228,6 +2228,445 @@ pcall(function()
     })
 end)
 -- ============================================================================
+-- NOIR / MM2 INTERNAL SCRIPT - PART 10 (FIXED VISUAL CHECK & FOV CIRCLE)
+-- ============================================================================
+
+local players = game:GetService("Players")
+local runService = game:GetService("RunService")
+local userInputService = game:GetService("UserInputService")
+local workspace = game:GetService("Workspace")
+local coreGui = game:GetService("CoreGui")
+local collectionService = game:GetService("CollectionService")
+
+local localPlayer = players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+getgenv().NoirConfig = getgenv().NoirConfig or {}
+getgenv().NoirConfig.Combat = getgenv().NoirConfig.Combat or {
+    Aimbot = false,
+    SilentAim = false,
+    GunWalls = false,
+    KnifeWalls = false,
+    AutoKillAll = false,
+    AutoGrabGun = false,
+    AutoShootMurderer = false,
+    AutoKillSheriff = false,
+    ShowFov = false,
+    FovRadius = 120,
+}
+
+-- ============================================================================
+-- 1. ВИЗУАЛИЗАЦИЯ FOV КРУГА (ИСПРАВЛЕНО)
+-- ============================================================================
+local fovGui = Instance.new("ScreenGui")
+fovGui.Name = "NoirFovCircleGui"
+fovGui.ResetOnSpawn = false
+fovGui.IgnoreGuiInset = true
+fovGui.DisplayOrder = 999
+
+pcall(function()
+    if syn and syn.protect_gui then syn.protect_gui(fovGui)
+    elseif protectgui then protectgui(fovGui) end
+end)
+fovGui.Parent = coreGui
+
+local fovCircleFrame = Instance.new("Frame")
+fovCircleFrame.Name = "Circle"
+fovCircleFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+fovCircleFrame.BackgroundTransparency = 1
+fovCircleFrame.BorderSizePixel = 0
+fovCircleFrame.Visible = false
+fovCircleFrame.Parent = fovGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(1, 0)
+uiCorner.Parent = fovCircleFrame
+
+local uiStroke = Instance.new("UIStroke")
+uiStroke.Color = Color3.fromRGB(255, 255, 255)
+uiStroke.Thickness = 1.5
+uiStroke.Transparency = 0
+uiStroke.Parent = fovCircleFrame
+
+-- ============================================================================
+-- 2. УТИЛИТЫ И ОПРЕДЕЛЕНИЕ РОЛЕЙ
+-- ============================================================================
+local function getHRP(ch) return ch and ch:FindFirstChild("HumanoidRootPart") end
+
+local function alive(plr)
+    local ch = plr.Character
+    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+    return ch and hum and hum.Health > 0 and getHRP(ch) ~= nil
+end
+
+local function getPlayerRole(plr)
+    local char = plr.Character
+    if not char then return "Innocent" end
+    local backpack = plr:FindFirstChild("Backpack")
+    local hasKnife = (char:FindFirstChild("Knife") or (backpack and backpack:FindFirstChild("Knife")))
+    local hasGun = (char:FindFirstChild("Gun") or char:FindFirstChild("Revolver") or (backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChild("Revolver"))))
+    
+    if hasKnife then return "Murderer" end
+    if hasGun then return "Sheriff" end
+    return "Innocent"
+end
+
+local function findWeapon(n)
+    local ch = localPlayer.Character
+    local bp = localPlayer:FindFirstChildOfClass("Backpack")
+    return (ch and ch:FindFirstChild(n)) or (bp and bp:FindFirstChild(n))
+end
+
+local function equip(tool)
+    local ch = localPlayer.Character
+    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+    if tool and hum and tool.Parent ~= ch then
+        pcall(function() hum:EquipTool(tool) end)
+    end
+end
+
+local function findDroppedGun()
+    for _, p in ipairs(collectionService:GetTagged("GunDrop")) do
+        if p:IsA("BasePart") and p:IsDescendantOf(workspace) then return p end
+    end
+    for _, d in ipairs(workspace:GetChildren()) do
+        if d:IsA("BasePart") and d.Name == "GunDrop" then return d end
+        if d:IsA("Model") then
+            local g = d:FindFirstChild("GunDrop")
+            if g and g:IsA("BasePart") then return g end
+        end
+    end
+    return nil
+end
+
+local function touchGun(h)
+    local hrp = getHRP(localPlayer.Character)
+    if not (hrp and h and h.Parent) then return false end
+    if typeof(firetouchinterest) == "function" then
+        pcall(function()
+            for _ = 1, 4 do
+                firetouchinterest(hrp, h, 0)
+                firetouchinterest(hrp, h, 1)
+            end
+        end)
+    end
+    return findWeapon("Gun") ~= nil or findWeapon("Revolver") ~= nil
+end
+
+-- ============================================================================
+-- 3. ПОИСК ЦЕЛИ В FOV + VISIBLE CHECK (ПРОВЕРКА НА ВИДИМОСТЬ)
+-- ============================================================================
+local function isVisible(targetChar)
+    local myChar = localPlayer.Character
+    if not (myChar and myChar:FindFirstChild("Head")) then return false end
+    
+    local targetHRP = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then return false end
+
+    local origin = camera.CFrame.Position
+    local dest = targetHRP.Position
+    local dir = (dest - origin)
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {myChar, targetChar}
+    rayParams.IgnoreWater = true
+
+    local result = workspace:Raycast(origin, dir, rayParams)
+    -- Если результат null, значит нет стен между камерой и целью
+    return result == nil
+end
+
+local function getFovTarget()
+    local mouseLoc = userInputService:GetMouseLocation()
+    local bestTarget, shortestDist = nil, math.huge
+    local fov = getgenv().NoirConfig.Combat.FovRadius
+    
+    for _, p in ipairs(players:GetPlayers()) do
+        if p ~= localPlayer and alive(p) then
+            local hrp = getHRP(p.Character)
+            if hrp then
+                local screenPos, onScreen = camera:WorldToViewportPoint(hrp.Position)
+                if onScreen and screenPos.Z > 0 then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - mouseLoc).Magnitude
+                    if dist <= fov and dist < shortestDist then
+                        -- ДОБАВЛЕН VISIBLE CHECK (только если не включен Walls)
+                        if getgenv().NoirConfig.Combat.GunWalls or getgenv().NoirConfig.Combat.KnifeWalls or isVisible(p.Character) then
+                            shortestDist = dist
+                            bestTarget = p
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bestTarget
+end
+
+-- ============================================================================
+-- 4. РЕНДЕР-ЛУП (AIMBOT И FOV КРУГ) - ИСПРАВЛЕНО
+-- ============================================================================
+runService.RenderStepped:Connect(function()
+    local cfg = getgenv().NoirConfig.Combat
+    
+    -- Обновление FOV круга (правильная привязка к мыши)
+    if cfg.ShowFov and (cfg.Aimbot or cfg.SilentAim) then
+        local mousePos = userInputService:GetMouseLocation()
+        local inset = game:GetService("GuiService"):GetGuiInset()
+        
+        fovCircleFrame.Size = UDim2.fromOffset(cfg.FovRadius * 2, cfg.FovRadius * 2)
+        fovCircleFrame.Position = UDim2.fromOffset(mousePos.X - inset.X, mousePos.Y - inset.Y)
+        fovCircleFrame.Visible = true
+    else
+        fovCircleFrame.Visible = false
+    end
+    
+    -- Работа Aimbot
+    if cfg.Aimbot then
+        local target = getFovTarget()
+        if target and target.Character and target.Character:FindFirstChild("Head") then
+            local headPos = target.Character.Head.Position
+            camera.CFrame = camera.CFrame:Lerp(CFrame.new(camera.CFrame.Position, headPos), 0.3)
+        end
+    end
+end)
+
+-- ============================================================================
+-- 5. ХУКИ (SILENT AIM & WALLS) С VISIBLE CHECK
+-- ============================================================================
+pcall(function()
+    if not hookmetamethod then return end
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+        local method = getnamecallmethod()
+        if not checkcaller() and method == "FireServer" then
+            local name = self.Name
+            local cfg = getgenv().NoirConfig.Combat
+            
+            if name == "Shoot" and (cfg.SilentAim or cfg.GunWalls) then
+                local target = getFovTarget()
+                if target and target.Character and getHRP(target.Character) then
+                    local args = {...}
+                    if #args >= 2 and typeof(args[2]) == "CFrame" then
+                        args[2] = CFrame.new(getHRP(target.Character).Position)
+                        return oldNamecall(self, table.unpack(args))
+                    end
+                end
+            elseif name == "KnifeThrown" and (cfg.KnifeWalls or cfg.SilentAim) then
+                local target = getFovTarget()
+                if target and target.Character and getHRP(target.Character) then
+                    local args = {...}
+                    if #args >= 2 and typeof(args[2]) == "CFrame" then
+                        args[2] = CFrame.new(getHRP(target.Character).Position)
+                        return oldNamecall(self, table.unpack(args))
+                    end
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
+end)
+
+-- ============================================================================
+-- 6. ФОНОВЫЕ ЛУПЫ (AUTO KILL, AUTO GRAB GUN И Т.Д.) С VISIBLE CHECK
+-- ============================================================================
+local KNIFE_PARTS = {"HumanoidRootPart", "UpperTorso", "LowerTorso", "Torso", "Head"}
+
+local function knifeKill(ev, targetChar)
+    if not (ev and targetChar) then return end
+    local ht = ev:FindFirstChild("HandleTouched")
+    local ks = ev:FindFirstChild("KnifeStabbed")
+    if not ht then return end
+    if ks then ks:FireServer() end
+    for _, pn in ipairs(KNIFE_PARTS) do
+        local part = targetChar:FindFirstChild(pn)
+        if part then ht:FireServer(part) return end
+    end
+end
+
+_G.NoirKnifeKill = function(targetChar)
+    local knife = findWeapon("Knife")
+    if not knife then return end
+    equip(knife)
+    local ev = knife:FindFirstChild("Events")
+    if ev then
+        knifeKill(ev, targetChar)
+    end
+end
+
+local function snapShot(target)
+    local gun = findWeapon("Gun") or findWeapon("Revolver")
+    if not gun then return false end
+    local shoot = gun:FindFirstChild("Shoot")
+    if not shoot then return false end
+
+    local myHrp = getHRP(localPlayer.Character)
+    local tChar = target and target.Character
+    local tHrp = tChar and getHRP(tChar)
+    if not (myHrp and tHrp) then return false end
+
+    equip(gun)
+    pcall(function()
+        shoot:FireServer(myHrp.CFrame, CFrame.new(tHrp.Position))
+    end)
+    return true
+end
+
+-- Главный боевой поток
+task.spawn(function()
+    while task.wait(0.1) do
+        local cfg = getgenv().NoirConfig.Combat
+        local char = localPlayer.Character
+        local hrp = getHRP(char)
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        
+        if hrp and hum and hum.Health > 0 then
+            
+            -- 1. Auto Grab Gun
+            if cfg.AutoGrabGun and not findWeapon("Gun") and not findWeapon("Revolver") and getPlayerRole(localPlayer) ~= "Murderer" then
+                local g = findDroppedGun()
+                if g then
+                    local back = hrp.CFrame
+                    hrp.CFrame = CFrame.new(g.Position + Vector3.new(0, 2, 0))
+                    touchGun(g)
+                    task.wait(0.05)
+                    hrp.CFrame = back
+                end
+            end
+            
+            -- 2. Auto Kill All (ТОЛЬКО С VISIBLE CHECK)
+            if cfg.AutoKillAll then
+                local knife = findWeapon("Knife")
+                local ev = knife and knife:FindFirstChild("Events")
+                if ev and ev:FindFirstChild("HandleTouched") then
+                    equip(knife)
+                    for _, p in ipairs(players:GetPlayers()) do
+                        if p ~= localPlayer and alive(p) then
+                            -- Проверка: если KnifeWalls выключен, проверяем видимость
+                            if cfg.KnifeWalls or isVisible(p.Character) then
+                                knifeKill(ev, p.Character)
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- 3. Auto Shoot Murderer (если шериф)
+            if cfg.AutoShootMurderer and (getPlayerRole(localPlayer) == "Sheriff" or getPlayerRole(localPlayer) == "Hero") then
+                for _, p in ipairs(players:GetPlayers()) do
+                    if p ~= localPlayer and alive(p) and getPlayerRole(p) == "Murderer" then
+                        if cfg.GunWalls or isVisible(p.Character) then
+                            snapShot(p)
+                        end
+                    end
+                end
+            end
+            
+            -- 4. Auto Kill Sheriff (если маньяк)
+            if cfg.AutoKillSheriff and getPlayerRole(localPlayer) == "Murderer" then
+                local knife = findWeapon("Knife")
+                local ev = knife and knife:FindFirstChild("Events")
+                if ev then
+                    equip(knife)
+                    for _, p in ipairs(players:GetPlayers()) do
+                        if p ~= localPlayer and alive(p) then
+                            local r = getPlayerRole(p)
+                            if (r == "Sheriff" or r == "Hero") then
+                                if cfg.KnifeWalls or isVisible(p.Character) then
+                                    knifeKill(ev, p.Character)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+        end
+    end
+end)
+
+-- ============================================================================
+-- 7. ИНТЕГРАЦИЯ ВО ВКЛАДКУ FLUENT
+-- ============================================================================
+task.spawn(function()
+    repeat task.wait(0.3) until Window or _G.Window
+    local activeWindow = Window or _G.Window
+    
+    if activeWindow then
+        local CombatTab = activeWindow:AddTab({ Title = "Combat", Icon = "crosshair" })
+        local Sec = CombatTab:AddSection("Combat & Aiming")
+        
+        Sec:AddToggle("AutoKillAllToggle", {
+            Title = "Auto Kill All",
+            Default = false,
+            Callback = function(v) getgenv().NoirConfig.Combat.AutoKillAll = v end
+        })
+        
+        Sec:AddToggle("AutoGrabGunToggle", {
+            Title = "Auto Grab Gun",
+            Default = false,
+            Callback = function(v) getgenv().NoirConfig.Combat.AutoGrabGun = v end
+        })
+
+        Sec:AddToggle("AutoShootMurdToggle", {
+            Title = "Auto Shoot Murderer (Sheriff)",
+            Default = false,
+            Callback = function(v) getgenv().NoirConfig.Combat.AutoShootMurderer = v end
+        })
+
+        Sec:AddToggle("AutoKillSheriffToggle", {
+            Title = "Auto Kill Sheriff (Murderer)",
+            Default = false,
+            Callback = function(v) getgenv().NoirConfig.Combat.AutoKillSheriff = v end
+        })
+        
+        Sec:AddToggle("AimbotToggle", {
+            Title = "Camera Aimbot",
+            Default = false,
+            Callback = function(v) getgenv().NoirConfig.Combat.Aimbot = v end
+        })
+        
+        Sec:AddToggle("SilentAimToggle", {
+            Title = "Silent Aim",
+            Default = false,
+            Callback = function(v) getgenv().NoirConfig.Combat.SilentAim = v end
+        })
+        
+        Sec:AddToggle("GunWallsToggle", {
+            Title = "Gun Through Walls",
+            Default = false,
+            Callback = function(v) getgenv().NoirConfig.Combat.GunWalls = v end
+        })
+        
+        Sec:AddToggle("KnifeWallsToggle", {
+            Title = "Knife Through Walls",
+            Default = false,
+            Callback = function(v) getgenv().NoirConfig.Combat.KnifeWalls = v end
+        })
+
+        Sec:AddToggle("ShowFovToggle", {
+            Title = "Show FOV Circle",
+            Default = false,
+            Callback = function(v) getgenv().NoirConfig.Combat.ShowFov = v end
+        })
+        
+        Sec:AddSlider("FovSlider", {
+            Title = "Aimbot FOV Radius",
+            Default = 120,
+            Min = 40,
+            Max = 400,
+            Rounding = 0,
+            Callback = function(v) getgenv().NoirConfig.Combat.FovRadius = v end
+        })
+
+        Fluent:Notify({
+            Title = "Part 10 Fixed",
+            Content = "Visible check & FOV circle now working perfectly!",
+            Duration = 3
+        })
+    end
+end)
+-- ============================================================================
 -- PART 11: FUN TAB (Equip-Check, Detailed Models, Working SkidFling)
 -- ============================================================================
 
@@ -3268,7 +3707,7 @@ pcall(function()
     end
 end)
 -- ============================================================================
--- PART 14: KAMIKAZE DRONE SYSTEM (Independent & Fixed)
+-- PART 14: KAMIKAZE DRONE SYSTEM (Fixed Action Trigger)
 -- ============================================================================
 
 local Players = game:GetService("Players")
@@ -3279,60 +3718,6 @@ local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- ============================================================================
--- ГЛОБАЛЬНЫЕ ФУНКЦИИ (Добавлены сюда, чтобы Дрон не крашился, если их нет)
--- ============================================================================
-_G.NoirKnifeKill = function(targetChar)
-    local char = LocalPlayer.Character
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    local knife = (char and char:FindFirstChild("Knife")) or (bp and bp:FindFirstChild("Knife"))
-    if knife then
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum and knife.Parent ~= char then pcall(function() hum:EquipTool(knife) end) end
-        local ev = knife:FindFirstChild("Events")
-        if ev then
-            local ht = ev:FindFirstChild("HandleTouched")
-            if ht then
-                for _, partName in ipairs({"HumanoidRootPart", "UpperTorso", "Torso", "Head"}) do
-                    local part = targetChar and targetChar:FindFirstChild(partName)
-                    if part then 
-                        pcall(function() ht:FireServer(part) end)
-                        break 
-                    end
-                end
-            end
-        end
-    end
-end
-
-_G.NoirSkidFling = function(targetPlayer)
-    if not targetPlayer or not targetPlayer.Character then return end
-    local char = LocalPlayer.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    local tHrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not tHrp then return end
-    
-    -- Безопасный флинг без жестких CFrame скачков
-    local bv = Instance.new("BodyAngularVelocity", hrp)
-    bv.AngularVelocity = Vector3.new(9999, 9999, 9999)
-    bv.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    local oldCF = hrp.CFrame
-    
-    task.spawn(function()
-        for i = 1, 10 do
-            if hrp and tHrp then hrp.CFrame = tHrp.CFrame * CFrame.new(0, 0, -2) end
-            task.wait(0.05)
-        end
-        task.wait(0.5)
-        if bv then bv:Destroy() end
-        if hrp and oldCF then hrp.CFrame = oldCF end
-    end)
-end
-
--- ============================================================================
--- ЛОГИКА ДРОНА
--- ============================================================================
 getgenv().NoirConfig = getgenv().NoirConfig or {}
 getgenv().NoirConfig.Drone = getgenv().NoirConfig.Drone or {
     Mode = "Fling",
@@ -3348,12 +3733,17 @@ local DroneModel = nil
 local SavedCFrame = nil
 local SavedTransparency = {}
 local CurrentTrail = nil
+
 local currentPitch = 0
 local currentRoll = 0
 
+-- ============================================================================
+-- 1. СОЗДАНИЕ МОДЕЛИ (Все части Anchored)
+-- ============================================================================
 local function createDroneModel()
     local model = Instance.new("Model")
     model.Name = "NoirDrone"
+    
     local core = Instance.new("Part")
     core.Name = "Core"
     core.Size = Vector3.new(1, 1, 1)
@@ -3365,13 +3755,18 @@ local function createDroneModel()
     
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then core.CFrame = hrp.CFrame * CFrame.new(0, 0, -5) end
+    if hrp then
+        core.CFrame = hrp.CFrame * CFrame.new(0, 0, -5)
+    end
 
     local id = tostring(getgenv().NoirConfig.Drone.AssetID):gsub("%D", "")
     local success = false
     
     if id ~= "" then
-        local ok, objects = pcall(function() return game:GetObjects("rbxassetid://" .. id) end)
+        local ok, objects = pcall(function()
+            return game:GetObjects("rbxassetid://" .. id)
+        end)
+        
         if ok and objects and #objects > 0 then
             local customModel = objects[1]
             if customModel:IsA("BasePart") then
@@ -3379,14 +3774,19 @@ local function createDroneModel()
                 customModel.Parent = m
                 customModel = m
             end
+            
             customModel.Parent = model
+            
+            -- Ставим модель ровно на ядро
             customModel:PivotTo(core.CFrame)
+            
             for _, p in ipairs(customModel:GetDescendants()) do
                 if p:IsA("BasePart") then
                     p.Anchored = true
                     p.CanCollide = getgenv().NoirConfig.Drone.CollisionEnabled
                 end
             end
+            
             success = true
         end
     end
@@ -3420,6 +3820,9 @@ local function createDroneModel()
     return model
 end
 
+-- ============================================================================
+-- 2. SIGNAL LOST
+-- ============================================================================
 local blackoutGui = Instance.new("ScreenGui")
 blackoutGui.Name = "NoirDroneBlackout"
 blackoutGui.ResetOnSpawn = false
@@ -3479,6 +3882,9 @@ local function playSignalLostEffect()
     blackoutGui.Enabled = false
 end
 
+-- ============================================================================
+-- 3. ЛОГИКА
+-- ============================================================================
 local function createExplosion(pos)
     local explodePart = Instance.new("Part")
     explodePart.Size = Vector3.new(1, 1, 1)
@@ -3501,9 +3907,11 @@ local function createExplosion(pos)
     emit.Size = NumberSequence.new(5, 0)
     emit.Color = ColorSequence.new(Color3.fromRGB(255, 255, 0), Color3.fromRGB(255, 50, 0))
     emit:Emit(100)
+
     game:GetService("Debris"):AddItem(explodePart, 1)
 end
 
+-- 🟢 НОВАЯ ФУНКЦИЯ ЗАВЕРШЕНИЯ (Сначала возвращаем игрока, потом флингаем)
 local function EndDroneFling(targetPlayer)
     if not DroneActive then return end
     DroneActive = false
@@ -3512,6 +3920,7 @@ local function EndDroneFling(targetPlayer)
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     local hum = char and char:FindFirstChildOfClass("Humanoid")
 
+    -- Возвращаем игрока и видимость
     if char and hrp then
         if hum then 
             hum.PlatformStand = false 
@@ -3526,28 +3935,29 @@ local function EndDroneFling(targetPlayer)
         Camera.CameraSubject = hum
     end
 
+    -- Взрываем дрон
     if DroneModel then
         if DroneModel.PrimaryPart then createExplosion(DroneModel.PrimaryPart.Position) end
         DroneModel:Destroy() 
     end
 
+    -- Проверяем на маньяка
     local isMurderer = false
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if (backpack and backpack:FindFirstChild("Knife")) or (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Knife")) then
         isMurderer = true
     end
 
-    -- Вызываем наши локальные функции безопасно
-    if getgenv().NoirConfig.Drone.Mode == "Murder" and isMurderer then
-        task.spawn(function() 
-            if _G.NoirKnifeKill then _G.NoirKnifeKill(targetPlayer.Character) end 
-        end)
+    -- Запускаем убийство или флинг
+    if getgenv().NoirConfig.Drone.Mode == "Murder" and isMurderer and _G.NoirKnifeKill then
+        task.spawn(function() _G.NoirKnifeKill(targetPlayer.Character) end)
     else
-        task.spawn(function() 
-            if _G.NoirSkidFling then _G.NoirSkidFling(targetPlayer) end 
-        end)
+        if _G.NoirSkidFling then
+            task.spawn(function() _G.NoirSkidFling(targetPlayer) end)
+        end
     end
 
+    -- Включаем черный экран (он перекроет телепорт и флинг)
     playSignalLostEffect() 
 end
 
@@ -3579,6 +3989,7 @@ local function StopDrone(exploded)
         hrp.Anchored = false
         hrp.CFrame = SavedCFrame
     end
+    
     Camera.CameraSubject = hum
     CurrentTrail = nil
 end
@@ -3608,16 +4019,22 @@ local function StartDrone()
     currentPitch = 0
     currentRoll = 0
     
-    if DroneModel.PrimaryPart then Camera.CameraSubject = DroneModel.PrimaryPart end
+    if DroneModel.PrimaryPart then 
+        Camera.CameraSubject = DroneModel.PrimaryPart 
+    end
     
-    if Fluent then Fluent:Notify({ Title = "Drone Launched", Content = "WASD - Управление. Врежься в игрока!", Duration = 3 }) end
+    Fluent:Notify({ Title = "Drone Launched", Content = "WASD - Управление. Врежься в игрока!", Duration = 3 })
 end
 
+-- ============================================================================
+-- 4. УПРАВЛЕНИЕ И КОЛЛИЗИЯ
+-- ============================================================================
 RunService.RenderStepped:Connect(function(dt)
     if not DroneActive or not DroneModel or not DroneModel.PrimaryPart then return end
     
     local core = DroneModel.PrimaryPart
     local camCFrame = Camera.CFrame
+    
     local flatLook = Vector3.new(camCFrame.LookVector.X, 0, camCFrame.LookVector.Z).Unit
     local flatRight = Vector3.new(camCFrame.RightVector.X, 0, camCFrame.RightVector.Z).Unit
 
@@ -3625,6 +4042,7 @@ RunService.RenderStepped:Connect(function(dt)
     if flatRight.Magnitude < 0.1 then flatRight = Vector3.new(1, 0, 0) end
 
     local fwdInput, rightInput, upInput = 0, 0, 0
+
     if UserInputService:IsKeyDown(Enum.KeyCode.W) then fwdInput = 1 end
     if UserInputService:IsKeyDown(Enum.KeyCode.S) then fwdInput = -1 end
     if UserInputService:IsKeyDown(Enum.KeyCode.D) then rightInput = 1 end
@@ -3644,12 +4062,14 @@ RunService.RenderStepped:Connect(function(dt)
 
     local targetPitch = fwdInput * math.rad(25)
     local targetRoll = rightInput * math.rad(25)
+    
     local alpha = math.clamp(dt * 8, 0, 1)
     currentPitch = currentPitch + (targetPitch - currentPitch) * alpha
     currentRoll = currentRoll + (targetRoll - currentRoll) * alpha
 
     local baseCFrame = CFrame.lookAt(Vector3.zero, flatLook)
     local tiltCFrame = CFrame.Angles(currentPitch, 0, -currentRoll)
+
     local moveDir = (flatLook * fwdInput + flatRight * rightInput + Vector3.new(0, 1, 0) * upInput)
     local newPos = core.Position
     
@@ -3663,7 +4083,9 @@ RunService.RenderStepped:Connect(function(dt)
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
             rayParams.FilterDescendantsInstances = {DroneModel, LocalPlayer.Character}
             local result = workspace:Raycast(core.Position, moveDir * speed * dt, rayParams)
-            if result then targetPos = core.Position end
+            if result then
+                targetPos = core.Position
+            end
         end
         newPos = targetPos
     end
@@ -3672,6 +4094,7 @@ RunService.RenderStepped:Connect(function(dt)
     DroneModel:PivotTo(finalCFrame)
     core.CFrame = finalCFrame
 
+    -- Проверка на удар
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
             local tHrp = p.Character:FindFirstChild("HumanoidRootPart")
@@ -3679,7 +4102,7 @@ RunService.RenderStepped:Connect(function(dt)
             if tHrp and tHum and tHum.Health > 0 then
                 local dist = (core.Position - tHrp.Position).Magnitude
                 if dist < 6 then
-                    EndDroneFling(p)
+                    EndDroneFling(p) -- ВЫЗЫВАЕМ НОВУЮ ФУНКЦИЮ
                     break
                 end
             end
@@ -3687,19 +4110,25 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- Меню
+-- ============================================================================
+-- 5. МЕНЮ
+-- ============================================================================
 task.wait(1)
+
 pcall(function()
     local FunTab = _G.NoirFunTab
     if FunTab then
         local DroneSec = FunTab:AddSection("Kamikaze Drone")
-        
+
         DroneSec:AddInput("DroneAssetIdInput", {
             Title = "Drone Model ID",
             Default = "",
             Placeholder = "Введите ID модели дрона...",
             Finished = true,
-            Callback = function(text) getgenv().NoirConfig.Drone.AssetID = text end
+            Callback = function(text)
+                getgenv().NoirConfig.Drone.AssetID = text
+                Fluent:Notify({ Title = "Drone", Content = "Модель обновлена", Duration = 2 })
+            end
         })
 
         DroneSec:AddToggle("DroneCollisionToggle", {
@@ -3717,20 +4146,65 @@ pcall(function()
 
         DroneSec:AddSlider("DroneSpeedSlider", {
             Title = "Drone Speed",
-            Default = 80, Min = 20, Max = 200, Rounding = 0,
+            Default = 80,
+            Min = 20,
+            Max = 200,
+            Rounding = 0,
             Callback = function(v) getgenv().NoirConfig.Drone.Speed = v end
+        })
+
+        DroneSec:AddToggle("DroneTrailToggle", {
+            Title = "Enable Trail",
+            Default = true,
+            Callback = function(v)
+                getgenv().NoirConfig.Drone.TrailEnabled = v
+                if DroneActive and DroneModel and DroneModel.PrimaryPart then
+                    if v then
+                        local a0 = Instance.new("Attachment", DroneModel.PrimaryPart) a0.Position = Vector3.new(0, 0, 1)
+                        local a1 = Instance.new("Attachment", DroneModel.PrimaryPart) a1.Position = Vector3.new(0, 0, -1)
+                        local trail = Instance.new("Trail")
+                        trail.Attachment0 = a0
+                        trail.Attachment1 = a1
+                        trail.Lifetime = 0.5
+                        trail.Color = ColorSequence.new(getgenv().NoirConfig.Drone.TrailColor)
+                        trail.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1)})
+                        trail.Parent = DroneModel.PrimaryPart
+                        CurrentTrail = trail
+                    else
+                        if CurrentTrail then
+                            CurrentTrail:Destroy()
+                            CurrentTrail = nil
+                        end
+                    end
+                end
+            end
+        })
+
+        DroneSec:AddColorpicker("DroneTrailColor", {
+            Title = "Trail Color",
+            Default = getgenv().NoirConfig.Drone.TrailColor,
+            Callback = function(v)
+                getgenv().NoirConfig.Drone.TrailColor = v
+                if CurrentTrail then
+                    CurrentTrail.Color = ColorSequence.new(v)
+                end
+            end
         })
 
         DroneSec:AddButton({
             Title = "SPAWN DRONE",
             Description = "Стать дроном и взорвать цель",
-            Callback = function() StartDrone() end
+            Callback = function()
+                StartDrone()
+            end
         })
         
         DroneSec:AddButton({
             Title = "Recall Drone (Cancel)",
             Description = "Отменить полет и вернуться",
-            Callback = function() if DroneActive then StopDrone(false) end end
+            Callback = function()
+                if DroneActive then StopDrone(false) end
+            end
         })
     end
 end)
@@ -4029,6 +4503,3 @@ pcall(function()
         
     end
 end)
--- В самом конце Part 1 добавь это:
-getgenv().NoirFluent = Fluent
-getgenv().NoirWindow = Window
